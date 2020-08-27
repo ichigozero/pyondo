@@ -1,4 +1,8 @@
 import time
+from math import log
+from math import log10
+from math import nan
+from math import sqrt
 from collections import namedtuple
 
 import pigpio
@@ -63,7 +67,9 @@ class DhtSensor:
                 'gpio',
                 'status',
                 'temperature',
-                'humidity'
+                'humidity',
+                'heat_index',
+                'dew_point',
             ]
         )
 
@@ -74,6 +80,31 @@ class DhtSensor:
             edge=pigpio.RISING_EDGE,
             func=self._rising_edge
         )
+
+    def _rising_edge(self, _gpio, _level, tick):
+        edge_length = pigpio.tickDiff(self._last_edge_tick, tick)
+        self._last_edge_tick = tick
+
+        if edge_length > 10000:
+            self._in_code = True
+            self._bits = -2
+            self._code = 0
+        elif self._in_code:
+            self._bits += 1
+
+            if self._bits >= 1:
+                self._code <<= 1
+
+                if 60 <= edge_length <= 150:
+                    if edge_length > 100:
+                        self._code += 1
+                else:
+                    self._in_code = False
+
+            if self._in_code:
+                if self._bits == 40:
+                    self._decode_dhtxx()
+                    self._in_code = False
 
     def _decode_dhtxx(self):
         """
@@ -163,53 +194,6 @@ class DhtSensor:
 
         return (valid_readings, temperature, humidity)
 
-    def _rising_edge(self, _gpio, _level, tick):
-        edge_length = pigpio.tickDiff(self._last_edge_tick, tick)
-        self._last_edge_tick = tick
-
-        if edge_length > 10000:
-            self._in_code = True
-            self._bits = -2
-            self._code = 0
-        elif self._in_code:
-            self._bits += 1
-
-            if self._bits >= 1:
-                self._code <<= 1
-
-                if 60 <= edge_length <= 150:
-                    if edge_length > 100:
-                        self._code += 1
-                else:
-                    self._in_code = False
-
-            if self._in_code:
-                if self._bits == 40:
-                    self._decode_dhtxx()
-                    self._in_code = False
-
-    def _trigger(self):
-        self._new_data = False
-        self._timestamp = time.time()
-        self._status = DHT_TIMEOUT
-
-        self._pi.write(gpio=self._gpio, level=0)
-
-        if self._model != DHTXX:
-            time.sleep(0.018)
-        else:
-            time.sleep(0.001)
-
-        self._pi.set_mode(gpio=self._gpio, mode=pigpio.INPUT)
-
-    def cancel(self):
-        """
-        Cancel registered callback
-        """
-        if self._callback_id is not None:
-            self._callback_id.cancel()
-            self._callback_id = None
-
     def read(self):
         """
         This triggers a read of the sensor.
@@ -239,10 +223,108 @@ class DhtSensor:
             gpio=self._gpio,
             status=self._status,
             temperature=self._temperature,
-            humidity=self._humidity
+            humidity=self._humidity,
+            heat_index=self.calculate_heat_index(
+                self._temperature,
+                self._humidity
+            ),
+            dew_point=self.calculate_dew_point(
+                self._temperature,
+                self._humidity
+            ),
         )
 
         if self._callback is not None:
             self._callback(datum)
 
         return datum
+
+    def _trigger(self):
+        self._new_data = False
+        self._timestamp = time.time()
+        self._status = DHT_TIMEOUT
+
+        self._pi.write(gpio=self._gpio, level=0)
+
+        if self._model != DHTXX:
+            time.sleep(0.018)
+        else:
+            time.sleep(0.001)
+
+        self._pi.set_mode(gpio=self._gpio, mode=pigpio.INPUT)
+
+    @staticmethod
+    def calculate_heat_index(temperature, humidity):
+        """
+        Calculate heat index given celsius temperature and relative humidity.
+        """
+        def _to_fahrenheit(celsius):
+            return (celsius * 1.8) + 32
+
+        def _to_celsius(fahrenheit):
+            return (fahrenheit - 32) / 1.8
+
+        fahrenheit = _to_fahrenheit(temperature)
+
+        heat_index = 0.5 * (
+            fahrenheit
+            + 61.0
+            + ((fahrenheit - 68.0) * 1.2)
+            + (humidity * 0.094)
+        )
+
+        if heat_index > 79:
+            heat_index = (
+                -42.379
+                + 2.04901523 * fahrenheit
+                + 10.14333127 * humidity
+                - 0.22475541 * fahrenheit * humidity
+                - 0.00683783 * pow(fahrenheit, 2)
+                - 0.05481717 * pow(humidity, 2)
+                + 0.00122874 * pow(fahrenheit, 2) * humidity
+                + 0.00085282 * fahrenheit * pow(humidity, 2)
+                - 0.00000199 * pow(fahrenheit, 2) * pow(humidity, 2)
+            )
+
+            if humidity < 13 and 80.0 <= fahrenheit <= 112.0:
+                heat_index -= (
+                    ((13.0 - humidity) * 0.25)
+                    * sqrt((17.0 - abs(fahrenheit - 95.0)) / 17)
+                )
+            elif humidity > 85.0 and 80.0 <= fahrenheit <= 87.0:
+                heat_index += (
+                    ((humidity - 85.0) * 0.1)
+                    * ((87.0 - fahrenheit) * 0.2)
+                )
+
+        return _to_celsius(heat_index)
+
+    @staticmethod
+    def calculate_dew_point(temperature, humidity):
+        """
+        Calculate dew point given celsius temperature and relative humidity.
+        """
+        if humidity < 1 or humidity > 100:
+            return nan
+
+        ratio = 373.15 / (273.15 + temperature)
+
+        # Saturation Vapor Pressure (SVP)
+        svp = -7.90298 * (ratio - 1)
+        svp += 5.02808 * log10(ratio)
+        svp += -1.3816e-7 * (pow(10, (11.344 * (1 - 1 / ratio))) - 1)
+        svp += 8.1328e-3 * (pow(10, (-3.49149 * (ratio - 1))) - 1)
+        svp += log10(1013.246)
+
+        vapor_pressure = pow(10, svp - 3) * humidity
+        vapor_temperature = log(vapor_pressure / 0.61078)
+
+        return (241.88 * vapor_temperature) / (17.558 - vapor_temperature)
+
+    def cancel(self):
+        """
+        Cancel registered callback
+        """
+        if self._callback_id is not None:
+            self._callback_id.cancel()
+            self._callback_id = None

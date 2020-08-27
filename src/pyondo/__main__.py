@@ -8,7 +8,8 @@ from .dht import DhtSensor
 
 def main():
     def _callback(data):
-        print('{:.3f} {:2d} {} {:3.1f} {:3.1f} *'.format(*data))
+        print('{:.3f} {:2d} {} {:3.1f} {:3.1f} {:3.1f} {:3.1f} *'
+              .format(*data))
 
     arg_count = len(sys.argv)
 
@@ -44,7 +45,8 @@ def main():
                     sensor[1].read()
                 else:
                     readings = sensor[1].read()
-                    print('{:.3f} {:2d} {} {:3.1f} {:3.1f}'.format(*readings))
+                    print('{:.3f} {:2d} {} {:3.1f} {:3.1f} {:3.1f} {:3.1f}'
+                          .format(*readings))
 
             time.sleep(2)
         except KeyboardInterrupt:
