@@ -34,3 +34,34 @@ class LedNotifier:
     @_ignore_exception
     def _close_leds(self):
         self._leds.close()
+
+    @_ignore_exception
+    def operate_leds(self, dew_point, on_time=1, off_time=1):
+        if dew_point < 10.0:
+            self._leds.red.blink(on_time, off_time)
+            self._leds.amber.off()
+            self._leds.green.off()
+        elif 10.0 <= dew_point < 16.0:
+            if 10.0 <= dew_point < 13.0:
+                self._leds.green.on()
+            else:
+                self._leds.green.blink(on_time, off_time)
+
+            self._leds.red.off()
+            self._leds.amber.off()
+        elif 16.0 <= dew_point < 21.0:
+            if 16.0 <= dew_point < 18.0:
+                self._leds.amber.blink(on_time, off_time)
+            else:
+                self._leds.amber.on()
+
+            self._leds.red.off()
+            self._leds.green.off()
+        elif dew_point >= 21.0:
+            if 21.0 <= dew_point < 24.0:
+                self._leds.red.blink(on_time, off_time)
+            else:
+                self._leds.red.on()
+
+            self._leds.amber.off()
+            self._leds.green.off()
