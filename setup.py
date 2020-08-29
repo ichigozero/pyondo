@@ -9,6 +9,7 @@ setup(
     packages=find_packages(where='src'),
     package_dir={'': 'src'},
     install_requires=[
+        'click==7.1.2',
         'pigpio==1.46',
     ],
     entry_points='''
