@@ -9,6 +9,7 @@ setup(
     packages=find_packages(where='src'),
     package_dir={'': 'src'},
     install_requires=[
+        'gpiozero==1.5.1',
         'pigpio==1.46',
     ],
     entry_points='''
