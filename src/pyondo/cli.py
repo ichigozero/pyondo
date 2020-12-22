@@ -74,13 +74,18 @@ def test_run(gpios, pause):
 @click.argument('broker')
 @click.argument('topic')
 @click.option('--pause', '-p', default=2)
+@click.option('--status', '-s', default=0)
 @click.option('--verbose', '-v', is_flag=True)
-def publish(gpio, broker, topic, pause, verbose):
+def publish(gpio, broker, topic, pause, status, verbose):
     if verbose:
         logging.basicConfig(level=logging.DEBUG)
 
     if pause < 2:
         logging.error('Pause time should be at least 2 seconds')
+        sys.exit()
+
+    if status < 0 or status > 2:
+        logging.error('Status should be between 0 and 2')
         sys.exit()
 
     pi = pigpio.pi()
@@ -119,8 +124,9 @@ def publish(gpio, broker, topic, pause, verbose):
             'dew_point': round(data.dew_point, 2),
         })
 
-        client.publish(topic, message)
-        logging.debug('Published message: %s', message)
+        if data.status <= status:
+            client.publish(topic, message)
+            logging.debug('Published message: %s', message)
 
     sensor = DhtSensor(pi=pi, gpio=gpio, callback=_callback)
 
