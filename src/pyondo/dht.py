@@ -34,7 +34,7 @@ class DhtSensor:
         callback will be called whenever a new reading is available.
 
         The callback receives a tuple of timestamp, GPIO, status,
-        temperature, and humidity.
+        temperature, humidity, heat index and dew point.
 
         The timestamp will be the number of seconds since the epoch
         (start of 1970).
@@ -213,10 +213,10 @@ class DhtSensor:
         self._trigger()
 
         for _ in range(5):
-            time.sleep(0.05)
-
             if self._new_data:
                 break
+
+            time.sleep(0.05)
 
         datum = self._Datum(
             timestamp=self._timestamp,

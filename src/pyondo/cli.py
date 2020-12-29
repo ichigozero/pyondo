@@ -50,34 +50,13 @@ def test_run(gpios, pause):
     sensors = []
 
     for gpio in gpios:
-        if gpio >= 100:
-            sensor = DhtSensor(
-                pi=pi,
-                gpio=gpio - 100,
-                callback=_callback
-            )
-        else:
-            sensor = DhtSensor(pi=pi, gpio=gpio)
-
+        sensor = DhtSensor(pi=pi, gpio=gpio, callback=_callback)
         sensors.append((gpio, sensor))
 
     while True:
         try:
             for sensor in sensors:
-                if sensor[0] >= 100:
-                    sensor[1].read()
-                else:
-                    readings = sensor[1].read()
-                    print(
-                        'Timestamp:{:.3f} '
-                        'GPIO:{:2d} '
-                        'Status:{} '
-                        'T:{:3.1f} '
-                        'rH:{:3.1f} '
-                        'HI:{:3.1f} '
-                        'DP:{:3.1f}'
-                        .format(*readings)
-                    )
+                sensor[1].read()
 
             time.sleep(pause)
         except KeyboardInterrupt:
@@ -95,15 +74,9 @@ def test_run(gpios, pause):
 @click.argument('broker')
 @click.argument('topic')
 @click.option('--pause', '-p', default=2)
+@click.option('--status', '-s', default=0)
 @click.option('--verbose', '-v', is_flag=True)
-def publish(gpio, broker, topic, pause, verbose):
-    def _on_connect(client, userdata, flags, rc):
-        if rc == 0:
-            logging.info('Connected to broker')
-            client.connected_flag = True
-        else:
-            logging.error('Connection to broker failed')
-
+def publish(gpio, broker, topic, pause, status, verbose):
     if verbose:
         logging.basicConfig(level=logging.DEBUG)
 
@@ -111,10 +84,21 @@ def publish(gpio, broker, topic, pause, verbose):
         logging.error('Pause time should be at least 2 seconds')
         sys.exit()
 
+    if status < 0 or status > 2:
+        logging.error('Status should be between 0 and 2')
+        sys.exit()
+
     pi = pigpio.pi()
 
     if not pi.connected:
         sys.exit()
+
+    def _on_connect(client, userdata, flags, rc):
+        if rc == 0:
+            logging.info('Connected to broker')
+            client.connected_flag = True
+        else:
+            logging.error('Connection to broker failed')
 
     client = mqtt.Client('pyondo-{}'.format(uuid.uuid4()))
     client.on_connect = _on_connect
@@ -132,21 +116,23 @@ def publish(gpio, broker, topic, pause, verbose):
             logging.error('Maximum retry count has been exceeded')
             sys.exit()
 
-    sensor = DhtSensor(pi=pi, gpio=gpio)
+    def _callback(data):
+        message = json.dumps({
+            'temperature': data.temperature,
+            'humidity': data.humidity,
+            'heat_index': round(data.heat_index, 2),
+            'dew_point': round(data.dew_point, 2),
+        })
 
-    while True:
-        try:
-            readings = sensor.read()
-            message = json.dumps({
-                'temperature': readings.temperature,
-                'humidity': readings.humidity,
-                'heat_index': round(readings.heat_index, 2),
-                'dew_point': round(readings.dew_point, 2),
-            })
-
+        if data.status <= status:
             client.publish(topic, message)
             logging.debug('Published message: %s', message)
 
+    sensor = DhtSensor(pi=pi, gpio=gpio, callback=_callback)
+
+    while True:
+        try:
+            sensor.read()
             time.sleep(pause)
         except KeyboardInterrupt:
             break
